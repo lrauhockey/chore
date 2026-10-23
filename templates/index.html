@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Chore Quest" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <title>House HQ Chore Quest</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- Top Sticky Header with Live Adult Avatar Score Strip -->
+  <header class="app-header">
+    <div class="brand-area">
+      <div class="brand-logo">🏆</div>
+      <div class="brand-title">
+        <h1 id="household-title">House HQ Chore Quest</h1>
+        <p>Tap a chore, tap your avatar, claim the glory!</p>
+      </div>
+    </div>
+    <div id="header-user-strip" class="user-score-strip"></div>
+  </header>
+
+  <!-- Toast Notification -->
+  <div id="toast-banner" class="toast-banner"></div>
+
+  <!-- Main Content Container -->
+  <main class="container">
+
+    <!-- ==================== VIEW 1: DAILY KIOSK BOARD ==================== -->
+    <section id="view-daily" class="view-section">
+      <div class="date-toolbar">
+        <div class="date-switcher">
+          <button class="btn-icon" onclick="shiftDailyDate(-1)">◀ Prev</button>
+          <div class="current-date-label">
+            <span id="daily-date-label">Today</span>
+            <span id="daily-today-badge" class="today-tag">TODAY</span>
+          </div>
+          <button class="btn-icon" onclick="shiftDailyDate(1)">Next ▶</button>
+          <button id="btn-jump-today" class="btn-icon" style="display:none;" onclick="loadDailyBoard()">Jump to Today</button>
+        </div>
+
+        <div class="progress-box">
+          <div class="progress-meta">
+            <span>Daily Quest Progress</span>
+            <span id="daily-progress-text">0 / 0 Chores (0%)</span>
+          </div>
+          <div class="progress-track">
+            <div id="daily-progress-bar" class="progress-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="daily-board-content"></div>
+    </section>
+
+    <!-- ==================== VIEW 2: WEEKLY SCHEDULE GRID ==================== -->
+    <section id="view-weekly" class="view-section" style="display:none;">
+      <div class="date-toolbar">
+        <div class="date-switcher">
+          <button class="btn-icon" onclick="shiftWeeklyDate(-7)">◀ Prev Week</button>
+          <div id="weekly-range-label" class="current-date-label">This Week</div>
+          <button class="btn-icon" onclick="shiftWeeklyDate(7)">Next Week ▶</button>
+          <button class="btn-icon" onclick="loadWeeklyGrid()">This Week</button>
+        </div>
+      </div>
+      <div id="weekly-grid-container" class="week-grid"></div>
+    </section>
+
+    <!-- ==================== VIEW 3: LEADERBOARD, BADGES & REPORTS ==================== -->
+    <section id="view-reports" class="view-section" style="display:none;">
+      <div class="date-toolbar">
+        <div class="date-switcher">
+          <button id="period-btn-week" class="btn-icon" onclick="loadReports('week')">📅 This Week</button>
+          <button id="period-btn-month" class="btn-icon" onclick="loadReports('month')">🗓️ This Month</button>
+          <button id="period-btn-all" class="btn-icon" onclick="loadReports('all')">🏛️ All-Time</button>
+        </div>
+        <div id="report-period-title" style="font-weight:800; font-size:1.1rem; color:#fcd34d;"></div>
+      </div>
+
+      <!-- Crowned Champion & Last Place Penalty Banner -->
+      <div id="royalty-banners-container" class="royalty-banners"></div>
+
+      <!-- Leaderboard & Earned Badges -->
+      <div id="leaderboard-container" class="leaderboard-list"></div>
+
+      <!-- Recent Activity & Category Breakdown -->
+      <div class="admin-grid">
+        <div class="panel-card">
+          <h2>📊 Points by Chore Category</h2>
+          <div id="category-breakdown-box"></div>
+        </div>
+        <div class="panel-card">
+          <h2>⚡ Recent Chore Log</h2>
+          <div id="recent-history-box"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 4: ADMIN SCREEN ==================== -->
+    <section id="view-admin" class="view-section" style="display:none;">
+      <div class="admin-grid">
+
+        <!-- Add / Edit Chore Form -->
+        <div class="panel-card">
+          <h2 id="chore-form-title">➕ Add / Edit Chore</h2>
+          <input type="hidden" id="chore-id" value="" />
+
+          <div class="form-group">
+            <label>Chore Name</label>
+            <input type="text" id="chore-name" class="form-control" placeholder="e.g. Walk the Dog, Clean Kitchen" />
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+            <div class="form-group">
+              <label>Icon (Emoji)</label>
+              <input type="text" id="chore-icon" class="form-control" value="✨" />
+            </div>
+            <div class="form-group">
+              <label>Points</label>
+              <input type="number" id="chore-points" class="form-control" value="15" min="1" step="5" />
+            </div>
+            <div class="form-group">
+              <label>Category</label>
+              <select id="chore-category" class="form-control">
+                <option value="dog">🐕 Dog Care</option>
+                <option value="poop">💩 Poop Patrol</option>
+                <option value="kitchen">🧽 Kitchen</option>
+                <option value="trash">🗑️ Trash & Curb</option>
+                <option value="house">🏠 General House</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+            <div class="form-group">
+              <label>Frequency</label>
+              <select id="chore-frequency" class="form-control" onchange="onFrequencyChange()">
+                <option value="daily">Once a Day (Daily)</option>
+                <option value="twice_daily">2x a Day (Morning & Evening)</option>
+                <option value="weekly">Weekly (Specific Days)</option>
+                <option value="biweekly">Every 2 Weeks (Specific Days)</option>
+              </select>
+            </div>
+            <div class="form-group" id="time-of-day-group">
+              <label>Time of Day Slot</label>
+              <select id="chore-time" class="form-control">
+                <option value="any">Anytime</option>
+                <option value="morning">Morning (AM)</option>
+                <option value="evening">Evening / Night (PM)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" id="days-of-week-group" style="display:none;">
+            <label>Days of Week (Tap all that apply)</label>
+            <div class="weekday-Checkboxes" id="weekday-pills">
+              <button type="button" class="day-pill" data-day="0" onclick="toggleDayPill(this)">Mon</button>
+              <button type="button" class="day-pill" data-day="1" onclick="toggleDayPill(this)">Tue</button>
+              <button type="button" class="day-pill" data-day="2" onclick="toggleDayPill(this)">Wed</button>
+              <button type="button" class="day-pill" data-day="3" onclick="toggleDayPill(this)">Thu</button>
+              <button type="button" class="day-pill" data-day="4" onclick="toggleDayPill(this)">Fri</button>
+              <button type="button" class="day-pill" data-day="5" onclick="toggleDayPill(this)">Sat</button>
+              <button type="button" class="day-pill" data-day="6" onclick="toggleDayPill(this)">Sun</button>
+            </div>
+          </div>
+
+          <div class="form-group" id="anchor-date-group" style="display:none;">
+            <label>Starting / Anchor Date (for Every-2-Weeks cadence)</label>
+            <input type="date" id="chore-anchor" class="form-control" />
+          </div>
+
+          <div class="form-group">
+            <label>Assignment Mode</label>
+            <select id="chore-assigned-user" class="form-control">
+              <option value="">🟢 Up for Grabs / Jump Ball (Anyone)</option>
+            </select>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:16px;">
+            <button class="btn-primary" onclick="saveChore()">💾 Save Chore</button>
+            <button class="btn-icon" onclick="resetChoreForm()">Clear</button>
+          </div>
+        </div>
+
+        <!-- Manage Family Members & Banners -->
+        <div style="display:flex; flex-direction:column; gap:24px;">
+          <div class="panel-card">
+            <h2 id="user-form-title">🧑‍🚀 Family Members (Adults)</h2>
+            <input type="hidden" id="user-id" value="" />
+            <div style="display:grid; grid-template-columns: 2fr 1fr 1fr auto; gap:8px; align-items:end;">
+              <div class="form-group" style="margin:0;">
+                <label>Name</label>
+                <input type="text" id="user-name" class="form-control" placeholder="e.g. Alex" />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label>Avatar</label>
+                <input type="text" id="user-avatar" class="form-control" value="🦊" />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label>Color</label>
+                <input type="color" id="user-color" class="form-control" value="#6366f1" style="height:43px; padding:4px;" />
+              </div>
+              <button class="btn-primary" onclick="saveUser()">Save</button>
+            </div>
+
+            <div style="margin-top:10px; font-size:0.8rem; color:#94a3b8;">
+              Quick Avatars:
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🦊')">🦊</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🦖')">🦖</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🚀')">🚀</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🦄')">🦄</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🧙‍♂️')">🧙‍♂️</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🥷')">🥷</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('👑')">👑</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🐼')">🐼</span>
+              <span style="cursor:pointer; font-size:1.2rem;" onclick="pickQuickEmoji('🌮')">🌮</span>
+            </div>
+
+            <div id="admin-users-list" style="margin-top:16px;"></div>
+          </div>
+
+          <div class="panel-card">
+            <h2>👑 Leaderboard Stakes & Banner Text</h2>
+            <div class="form-group">
+              <label>Household Title</label>
+              <input type="text" id="setting-household-name" class="form-control" />
+            </div>
+            <div class="form-group">
+              <label>Crowned Champion Perk Banner</label>
+              <input type="text" id="setting-champion-reward" class="form-control" />
+            </div>
+            <div class="form-group">
+              <label>Last Place Penalty Banner</label>
+              <input type="text" id="setting-last-penalty" class="form-control" />
+            </div>
+            <button class="btn-primary" onclick="saveSettings()">💾 Save Banner Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Existing Chores List -->
+      <div class="panel-card" style="margin-top:24px;">
+        <h2>📋 Configured Household Chores</h2>
+        <div id="admin-chores-list"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 2-Tap Avatar Picker Modal (Kiosk Check-Off) -->
+  <div id="avatar-modal" class="modal-backdrop" onclick="closeAvatarModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div id="modal-chore-icon" style="font-size:3rem; margin-bottom:6px;">🐕</div>
+      <h2 id="modal-chore-title" style="margin:0 0 6px;">Walk the Dog</h2>
+      <p id="modal-chore-subtitle" style="margin:0; color:#94a3b8; font-weight:700;">Who crushed this chore?</p>
+      <div id="modal-avatar-grid" class="avatar-picker-grid"></div>
+      <button class="btn-icon" style="width:100%;" onclick="closeAvatarModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Bottom iPad Kiosk Navigation Bar -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" data-tab="daily" onclick="switchTab('daily')">
+      <span class="icon">☀️</span>
+      <span>Today's Board</span>
+    </button>
+    <button class="nav-tab" data-tab="weekly" onclick="switchTab('weekly')">
+      <span class="icon">📅</span>
+      <span>Weekly Grid</span>
+    </button>
+    <button class="nav-tab" data-tab="reports" onclick="switchTab('reports')">
+      <span class="icon">🏆</span>
+      <span>Leaderboard</span>
+    </button>
+    <button class="nav-tab" data-tab="admin" onclick="switchTab('admin')">
+      <span class="icon">⚙️</span>
+      <span>Admin Setup</span>
+    </button>
+  </nav>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "House HQ Chore Quest",
+  "short_name": "Chore Quest",
+  "description": "Family Chore Chart, Leaderboard & iPad Kiosk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6366f1",
+  "orientation": "any"
+}
