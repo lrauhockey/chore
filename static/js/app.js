@@ -7,6 +7,7 @@ let currentDailyDate = null;
 let currentWeeklyDate = null;
 let currentReportPeriod = "week";
 let activeUsers = [];
+let dailyChoreTemplates = [];
 let adminChoresCache = [];
 let adminUsersCache = [];
 let pendingChoreSelection = null;
@@ -52,6 +53,7 @@ async function loadDailyBoard(dateStr = null) {
 
   currentDailyDate = data.date;
   activeUsers = data.users || [];
+  dailyChoreTemplates = data.chore_templates || [];
 
   if (data.settings && data.settings.household_name) {
     document.getElementById("household-title").textContent = data.settings.household_name;
@@ -108,6 +110,7 @@ function renderDailySections(chores) {
     { key: "morning", title: "🌅 Morning Routine", items: [] },
     { key: "anytime", title: "☀️ Anytime Today", items: [] },
     { key: "evening", title: "🌙 Evening & Night Duty", items: [] },
+    { key: "weekly_anytime", title: "📅 Weekly Tasks (Open Anytime This Week)", items: [] },
   ];
 
   chores.forEach((ch) => {
@@ -252,6 +255,100 @@ async function confirmChoreCompletion(userId) {
 
   if (fromWeekly) loadWeeklyGrid(currentWeeklyDate);
   else loadDailyBoard(currentDailyDate);
+}
+
+/* --------------------------------------------------------------------------
+   Ad-Hoc / Bonus Chore Modal (From Today's Board)
+   -------------------------------------------------------------------------- */
+function openAdhocModal() {
+  const presetSelect = document.getElementById("adhoc-preset-select");
+  presetSelect.innerHTML =
+    `<option value="">✨ Custom One-Off Task...</option>` +
+    dailyChoreTemplates
+      .map(
+        (ch) =>
+          `<option value="${ch.id}">${ch.icon} ${escapeHtml(ch.name)} (+${ch.points} pts)</option>`
+      )
+      .join("");
+
+  const userSelect = document.getElementById("adhoc-user-select");
+  userSelect.innerHTML =
+    `<option value="">🟢 Put on Today's Board (Open for Anyone to Claim)</option>` +
+    activeUsers
+      .map((u) => `<option value="${u.id}">${u.avatar} Completed right now by ${escapeHtml(u.name)}</option>`)
+      .join("");
+
+  document.getElementById("adhoc-name").value = "";
+  document.getElementById("adhoc-icon").value = "⚡";
+  document.getElementById("adhoc-points").value = "15";
+  onAdhocPresetChange();
+  document.getElementById("adhoc-modal").classList.add("open");
+}
+
+function closeAdhocModal() {
+  document.getElementById("adhoc-modal").classList.remove("open");
+}
+
+function onAdhocPresetChange() {
+  const presetId = document.getElementById("adhoc-preset-select").value;
+  const customBox = document.getElementById("adhoc-custom-fields");
+  const userSelect = document.getElementById("adhoc-user-select");
+
+  if (presetId) {
+    customBox.style.display = "none";
+    // When picking an existing recurring chore for an extra ad-hoc run today,
+    // default to selecting who completed it (or first adult if open)
+    if (!userSelect.value && activeUsers.length > 0) {
+      userSelect.value = String(activeUsers[0].id);
+    }
+  } else {
+    customBox.style.display = "block";
+    userSelect.value = "";
+  }
+}
+
+async function submitAdhocTask() {
+  const presetId = document.getElementById("adhoc-preset-select").value;
+  const userId = document.getElementById("adhoc-user-select").value;
+
+  if (presetId && !userId) {
+    showToast("⚠️ Select who completed this extra chore run!");
+    return;
+  }
+
+  const payload = {
+    target_date: currentDailyDate,
+    chore_id: presetId ? parseInt(presetId, 10) : null,
+    user_id: userId ? parseInt(userId, 10) : null,
+    name: document.getElementById("adhoc-name").value.trim(),
+    icon: document.getElementById("adhoc-icon").value.trim() || "⚡",
+    points: parseInt(document.getElementById("adhoc-points").value || "15", 10),
+    category: document.getElementById("adhoc-category").value,
+  };
+
+  if (!presetId && !payload.name) {
+    showToast("⚠️ Please enter a name for the custom task!");
+    return;
+  }
+
+  const res = await fetch("/api/adhoc", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    closeAdhocModal();
+    if (data.completed_by) {
+      showToast(
+        `⚡ ${data.completed_by.avatar} ${data.completed_by.name} logged "${data.chore_name}" (+${data.completed_by.points} pts)!`
+      );
+    } else {
+      showToast(`⚡ Added "${data.chore_name}" to Today's Board!`);
+    }
+    loadDailyBoard(currentDailyDate);
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -533,8 +630,10 @@ function onFrequencyChange() {
   const timeGroup = document.getElementById("time-of-day-group");
 
   daysGroup.style.display = freq === "weekly" || freq === "biweekly" ? "block" : "none";
-  anchorGroup.style.display = freq === "biweekly" ? "block" : "none";
-  timeGroup.style.display = freq === "twice_daily" ? "none" : "block";
+  anchorGroup.style.display =
+    freq === "biweekly" || freq === "every_other_day" ? "block" : "none";
+  timeGroup.style.display =
+    freq === "twice_daily" || freq === "weekly_anytime" ? "none" : "block";
 }
 
 function toggleDayPill(btn) {

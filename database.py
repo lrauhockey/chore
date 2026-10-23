@@ -108,8 +108,11 @@ def init_db(db_path=None):
             ("Feed the Dog", "🦴", "dog", 10, "twice_daily", "", "both", recent_sunday, None),
             ("Pick Up Dog Poop", "💩", "poop", 25, "daily", "", "any", recent_sunday, None),
             ("Clean the Kitchen", "🧽", "kitchen", 20, "daily", "", "evening", recent_sunday, None),
+            ("Run the Dishwasher", "🍽️", "kitchen", 15, "every_other_day", "", "evening", today.isoformat(), None),
+            ("Empty the Dishwasher", "🥣", "kitchen", 15, "every_other_day", "", "morning", today.isoformat(), None),
             ("Take Out the Trash", "🗑️", "trash", 20, "weekly", "0,3", "evening", recent_sunday, None),
             ("Take Out Recyclables", "♻️", "trash", 25, "biweekly", "6", "evening", recent_sunday, None),
+            ("Food Shopping / Groceries", "🛒", "kitchen", 30, "weekly_anytime", "", "any", recent_sunday, None),
         ]
         cur.executemany(
             """
@@ -119,6 +122,24 @@ def init_db(db_path=None):
             """,
             sample_chores,
         )
+    else:
+        # Ensure Run the Dishwasher, Empty the Dishwasher & Food Shopping exist for already-initialized DBs
+        today_iso = date.today().isoformat()
+        for ch_name, ch_icon, ch_freq, ch_pts, ch_tod in [
+            ("Run the Dishwasher", "🍽️", "every_other_day", 15, "evening"),
+            ("Empty the Dishwasher", "🥣", "every_other_day", 15, "morning"),
+            ("Food Shopping / Groceries", "🛒", "weekly_anytime", 30, "any"),
+        ]:
+            cur.execute("SELECT COUNT(*) as cnt FROM chores WHERE name = ?", (ch_name,))
+            if cur.fetchone()["cnt"] == 0:
+                cur.execute(
+                    """
+                    INSERT INTO chores
+                    (name, icon, category, points, frequency_type, days_of_week, time_of_day, anchor_date, assigned_user_id)
+                    VALUES (?, ?, 'kitchen', ?, ?, '', ?, ?, NULL)
+                    """,
+                    (ch_name, ch_icon, ch_pts, ch_freq, ch_tod, today_iso),
+                )
 
     conn.commit()
     conn.close()

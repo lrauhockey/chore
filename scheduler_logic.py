@@ -20,15 +20,31 @@ def is_chore_due_on_date(chore, target_date):
     Supported frequency_type values:
       - 'daily': every day (1x)
       - 'twice_daily': every day (2x: Morning AM & Evening PM)
+      - 'every_other_day': every 2 days anchored to `anchor_date`
       - 'weekly': specific weekday numbers in `days_of_week` (e.g. "0,3" for Mon & Thu)
+      - 'weekly_anytime': floating 1x/week task (open any day of the week until completed)
       - 'biweekly': every 2 weeks on specific weekday numbers in `days_of_week`,
                     anchored to the ISO week of `anchor_date`.
+      - 'adhoc_date': one-off ad-hoc task pinned to `anchor_date`
     """
     target_date = parse_iso_date(target_date)
     freq = (chore["frequency_type"] or "daily").lower()
 
-    if freq in ("daily", "twice_daily"):
+    if freq in ("daily", "twice_daily", "weekly_anytime"):
         return True
+
+    if freq == "adhoc_date":
+        anchor_str = chore["anchor_date"] or ""
+        return anchor_str == target_date.isoformat()
+
+    if freq == "every_other_day":
+        anchor_str = chore["anchor_date"] or "2026-10-18"
+        try:
+            anchor = parse_iso_date(anchor_str)
+        except ValueError:
+            anchor = date(2026, 10, 18)
+        days_diff = (target_date - anchor).days
+        return (days_diff % 2) == 0
 
     raw_days = str(chore["days_of_week"] or "").strip()
     if not raw_days:
@@ -66,14 +82,17 @@ def expand_chore_slots_for_date(chore, target_date):
     Return a list of slot dicts for `chore` on `target_date`.
     Each slot has:
       - slot: 'AM', 'PM', or 'ANY'
-      - slot_label: 'Morning', 'Evening', or 'Anytime'
-      - time_group: 'morning', 'anytime', or 'evening'
+      - slot_label: 'Morning', 'Evening', 'Anytime', or 'Anytime This Week'
+      - time_group: 'morning', 'anytime', 'evening', or 'weekly_anytime'
     """
     if not is_chore_due_on_date(chore, target_date):
         return []
 
     freq = (chore["frequency_type"] or "daily").lower()
     tod = (chore["time_of_day"] or "any").lower()
+
+    if freq == "weekly_anytime":
+        return [{"slot": "ANY", "slot_label": "Anytime This Week", "time_group": "weekly_anytime"}]
 
     if freq == "twice_daily" or tod == "both":
         return [
@@ -107,6 +126,12 @@ def format_frequency_summary(chore):
         return "2x Daily (Morning & Evening)"
     if freq == "daily":
         return f"Daily{tod_suffix}"
+    if freq == "every_other_day":
+        return f"Every Other Day{tod_suffix}"
+    if freq == "weekly_anytime":
+        return "Weekly (Anytime During the Week)"
+    if freq == "adhoc_date":
+        return f"One-Off Ad-Hoc ({chore['anchor_date'] or 'Today'})"
     if freq == "weekly":
         return f"Weekly on {day_names or 'Mon'}{tod_suffix}"
     if freq == "biweekly":
@@ -114,26 +139,57 @@ def format_frequency_summary(chore):
     return "Daily"
 
 
-def build_daily_board(chores, users_by_id, completions_for_date, target_date):
+def build_daily_board(chores, users_by_id, completions_for_date, target_date, week_completions=None):
     """
     Build the full list of scheduled chore instances for `target_date`,
     enriched with completion status and user metadata.
+    Also handles:
+      - `weekly_anytime` chores (open all week until completed on any day in the Mon-Sun window)
+      - Ad-hoc completions of chores that weren't otherwise scheduled on `target_date`.
     """
+    target_date_obj = parse_iso_date(target_date)
+    target_iso = target_date_obj.isoformat()
+
     completion_map = {
         (c["chore_id"], c["slot"]): c for c in completions_for_date
     }
 
+    # Map weekly completions by chore_id so a `weekly_anytime` chore knows if it was
+    # already completed earlier/later in the same Mon-Sun week
+    weekly_comp_by_chore = {}
+    if week_completions:
+        for wc in week_completions:
+            weekly_comp_by_chore.setdefault(wc["chore_id"], []).append(wc)
+
     instances = []
+    included_keys = set()
+
     for chore in chores:
         if not chore["active"]:
             continue
-        slots = expand_chore_slots_for_date(chore, target_date)
+        freq = (chore["frequency_type"] or "daily").lower()
+        slots = expand_chore_slots_for_date(chore, target_date_obj)
         assigned_user = users_by_id.get(chore["assigned_user_id"]) if chore["assigned_user_id"] else None
 
         for s in slots:
             comp = completion_map.get((chore["id"], s["slot"]))
-            completed_by = users_by_id.get(comp["user_id"]) if comp else None
 
+            # If this is a floating `weekly_anytime` chore and wasn't completed on `target_date`,
+            # check if someone already completed it on another day this week!
+            if freq == "weekly_anytime" and not comp:
+                wk_list = weekly_comp_by_chore.get(chore["id"], [])
+                if wk_list:
+                    comp = wk_list[0]
+
+            completed_by = users_by_id.get(comp["user_id"]) if comp else None
+            completed_date_str = comp["target_date"] if comp else target_iso
+
+            slot_label = s["slot_label"]
+            if freq == "weekly_anytime" and comp and completed_date_str != target_iso:
+                done_day_name = WEEKDAY_NAMES[parse_iso_date(completed_date_str).weekday()]
+                slot_label = f"Done {done_day_name}"
+
+            included_keys.add((chore["id"], s["slot"]))
             instances.append(
                 {
                     "chore_id": chore["id"],
@@ -144,9 +200,9 @@ def build_daily_board(chores, users_by_id, completions_for_date, target_date):
                     "frequency_type": chore["frequency_type"],
                     "frequency_label": format_frequency_summary(chore),
                     "slot": s["slot"],
-                    "slot_label": s["slot_label"],
+                    "slot_label": slot_label,
                     "time_group": s["time_group"],
-                    "target_date": parse_iso_date(target_date).isoformat(),
+                    "target_date": completed_date_str if (freq == "weekly_anytime" and comp) else target_iso,
                     "assigned_user": assigned_user,
                     "completed": bool(comp),
                     "completion_id": comp["id"] if comp else None,
@@ -156,6 +212,41 @@ def build_daily_board(chores, users_by_id, completions_for_date, target_date):
                     "was_stolen": bool(comp["was_stolen"]) if comp else False,
                 }
             )
+
+    # Also surface any ad-hoc / bonus completions logged on `target_date` for chores
+    # that were not normally scheduled on `target_date` (or extra ADHOC slots)
+    chores_by_id = {c["id"]: c for c in chores}
+    for comp in completions_for_date:
+        key = (comp["chore_id"], comp["slot"])
+        if key in included_keys:
+            continue
+        chore = chores_by_id.get(comp["chore_id"])
+        if not chore:
+            continue
+        completed_by = users_by_id.get(comp["user_id"])
+        assigned_user = users_by_id.get(chore["assigned_user_id"]) if chore["assigned_user_id"] else None
+        instances.append(
+            {
+                "chore_id": chore["id"],
+                "name": chore["name"],
+                "icon": chore["icon"],
+                "category": chore["category"],
+                "points": chore["points"],
+                "frequency_type": chore["frequency_type"],
+                "frequency_label": "⚡ Bonus / Ad-Hoc",
+                "slot": comp["slot"],
+                "slot_label": "⚡ Ad-Hoc Bonus",
+                "time_group": "anytime",
+                "target_date": target_iso,
+                "assigned_user": assigned_user,
+                "completed": True,
+                "completion_id": comp["id"],
+                "completed_by": completed_by,
+                "completed_at": comp["completed_at"],
+                "points_earned": comp["points_earned"],
+                "was_stolen": bool(comp["was_stolen"]),
+            }
+        )
 
     return instances
 

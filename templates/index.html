@@ -52,6 +52,8 @@
             <div id="daily-progress-bar" class="progress-fill" style="width: 0%;"></div>
           </div>
         </div>
+
+        <button class="btn-primary" onclick="openAdhocModal()">⚡ + Ad-Hoc / Bonus Chore</button>
       </div>
 
       <div id="daily-board-content"></div>
@@ -141,8 +143,10 @@
               <select id="chore-frequency" class="form-control" onchange="onFrequencyChange()">
                 <option value="daily">Once a Day (Daily)</option>
                 <option value="twice_daily">2x a Day (Morning & Evening)</option>
-                <option value="weekly">Weekly (Specific Days)</option>
-                <option value="biweekly">Every 2 Weeks (Specific Days)</option>
+                <option value="every_other_day">Every Other Day (Every 2 Days)</option>
+                <option value="weekly_anytime">Weekly — Anytime During Week (e.g. Food Shopping)</option>
+                <option value="weekly">Weekly — Specific Days (e.g. Mon & Thu)</option>
+                <option value="biweekly">Every 2 Weeks — Specific Days</option>
               </select>
             </div>
             <div class="form-group" id="time-of-day-group">
@@ -169,7 +173,7 @@
           </div>
 
           <div class="form-group" id="anchor-date-group" style="display:none;">
-            <label>Starting / Anchor Date (for Every-2-Weeks cadence)</label>
+            <label>Starting / Anchor Date (for Every Other Day or Every 2 Weeks cadence)</label>
             <input type="date" id="chore-anchor" class="form-control" />
           </div>
 
@@ -259,6 +263,62 @@
       <p id="modal-chore-subtitle" style="margin:0; color:#94a3b8; font-weight:700;">Who crushed this chore?</p>
       <div id="modal-avatar-grid" class="avatar-picker-grid"></div>
       <button class="btn-icon" style="width:100%;" onclick="closeAvatarModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Ad-Hoc / Bonus Chore Modal (From Today's Board) -->
+  <div id="adhoc-modal" class="modal-backdrop" onclick="closeAdhocModal(event)">
+    <div class="modal-card" style="max-width:560px; text-align:left;" onclick="event.stopPropagation()">
+      <h2 style="margin:0 0 6px; text-align:center;">⚡ Add Ad-Hoc / Bonus Task</h2>
+      <p style="margin:0 0 18px; color:#94a3b8; font-size:0.9rem; text-align:center;">
+        Log an extra chore you did today (like an extra dishwasher run) or add a custom one-off task!
+      </p>
+
+      <div class="form-group">
+        <label>Pick a Household Chore (or choose Custom below)</label>
+        <select id="adhoc-preset-select" class="form-control" onchange="onAdhocPresetChange()">
+          <option value="">✨ Custom One-Off Task...</option>
+        </select>
+      </div>
+
+      <div id="adhoc-custom-fields">
+        <div class="form-group">
+          <label>Task Name</label>
+          <input type="text" id="adhoc-name" class="form-control" placeholder="e.g. Run the Dishwasher, Mow the Lawn" />
+        </div>
+        <div class="admin-chore-meta-row" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label>Icon</label>
+            <input type="text" id="adhoc-icon" class="form-control" value="⚡" />
+          </div>
+          <div class="form-group">
+            <label>Points</label>
+            <input type="number" id="adhoc-points" class="form-control" value="15" min="1" step="5" />
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="adhoc-category" class="form-control">
+              <option value="kitchen">🧽 Kitchen</option>
+              <option value="dog">🐕 Dog Care</option>
+              <option value="poop">💩 Poop Patrol</option>
+              <option value="trash">🗑️ Trash & Curb</option>
+              <option value="house">🏠 General House</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:8px;">
+        <label>Did someone already finish it, or leave it open on Today's Board?</label>
+        <select id="adhoc-user-select" class="form-control">
+          <option value="">🟢 Put on Today's Board (Open for Anyone to Claim)</option>
+        </select>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:18px;">
+        <button class="btn-primary" style="flex:1;" onclick="submitAdhocTask()">⚡ Add Task</button>
+        <button class="btn-icon" onclick="closeAdhocModal()">Cancel</button>
+      </div>
     </div>
   </div>
 

@@ -88,12 +88,34 @@ def create_app(db_path=None):
             "SELECT * FROM completions WHERE target_date = ?", (target_iso,)
         ).fetchall()
 
-        board = build_daily_board(chores, all_users_by_id, completions, target)
+        # Also fetch completions for the current Mon-Sun week so `weekly_anytime` chores
+        # reflect completion across the whole week
+        monday = target - timedelta(days=target.weekday())
+        sunday = monday + timedelta(days=6)
+        week_completions = conn.execute(
+            "SELECT * FROM completions WHERE target_date BETWEEN ? AND ?",
+            (monday.isoformat(), sunday.isoformat()),
+        ).fetchall()
+
+        board = build_daily_board(chores, all_users_by_id, completions, target, week_completions)
+
+        # Catalog of all recurring chores so the user can trigger an extra/ad-hoc run from Today's page
+        all_chore_templates = [
+            {
+                "id": ch["id"],
+                "name": ch["name"],
+                "icon": ch["icon"],
+                "points": ch["points"],
+                "category": ch["category"],
+            }
+            for ch in chores
+            if ch["frequency_type"] != "adhoc_date"
+        ]
 
         # Calculate quick daily summary & today's points per user
         today_points_by_user = {uid: 0 for uid in users_by_id}
         for item in board:
-            if item["completed"] and item["completed_by"]:
+            if item["completed"] and item["completed_by"] and item["target_date"] == target_iso:
                 uid = item["completed_by"]["id"]
                 if uid in today_points_by_user:
                     today_points_by_user[uid] += item["points_earned"]
@@ -117,6 +139,7 @@ def create_app(db_path=None):
                 "settings": settings,
                 "users": list(users_by_id.values()),
                 "chores": board,
+                "chore_templates": all_chore_templates,
                 "progress": {
                     "completed": completed_slots,
                     "total": total_slots,
@@ -192,6 +215,78 @@ def create_app(db_path=None):
         return jsonify({"ok": True})
 
     # ------------------------------------------------------------------
+    # Ad-Hoc Task Creation / Extra Chore Run from Today's Board
+    # ------------------------------------------------------------------
+    @app.route("/api/adhoc", methods=["POST"])
+    def api_adhoc():
+        """
+        Allows adding an ad-hoc task directly from Today's Board:
+        - Either pick an existing chore (`chore_id`) to run on-demand today, OR
+        - Create a custom one-off task (`name`, `icon`, `points`, `category`) for `target_date`.
+        - If `user_id` is provided, immediately marks it complete and awards points;
+          if `user_id` is omitted/empty, places it on Today's Board as an open task to be claimed!
+        """
+        data = request.get_json(force=True) or {}
+        target_date = data.get("target_date") or date.today().isoformat()
+        existing_chore_id = data.get("chore_id")
+        user_id = data.get("user_id")
+        user_id = int(user_id) if user_id not in (None, "", 0, "0") else None
+
+        conn = db()
+        cur = conn.cursor()
+
+        if existing_chore_id:
+            chore = cur.execute("SELECT * FROM chores WHERE id = ?", (int(existing_chore_id),)).fetchone()
+            if not chore:
+                conn.close()
+                return jsonify({"error": "Chore not found"}), 400
+            chore_id = chore["id"]
+            points = int(chore["points"])
+            chore_name = chore["name"]
+        else:
+            name = (data.get("name") or "").strip()
+            if not name:
+                conn.close()
+                return jsonify({"error": "Task name is required"}), 400
+            icon = (data.get("icon") or "⚡").strip()
+            points = int(data.get("points") or 15)
+            category = (data.get("category") or "house").strip()
+            cur.execute(
+                """
+                INSERT INTO chores
+                (name, icon, category, points, frequency_type, days_of_week, time_of_day, anchor_date, assigned_user_id, active)
+                VALUES (?, ?, ?, ?, 'adhoc_date', '', 'any', ?, NULL, 1)
+                """,
+                (name, icon, category, points, target_date),
+            )
+            chore_id = cur.lastrowid
+            chore_name = name
+
+        # If a user_id was selected right away, log an ad-hoc completion slot
+        user_info = None
+        if user_id:
+            user = cur.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if user:
+                # Generate a unique ADHOC slot if needed so multiple ad-hoc runs don't overwrite each other
+                existing_slots = cur.execute(
+                    "SELECT COUNT(*) as cnt FROM completions WHERE chore_id = ? AND target_date = ?",
+                    (chore_id, target_date),
+                ).fetchone()["cnt"]
+                slot_code = "ANY" if (not existing_chore_id and existing_slots == 0) else f"ADHOC_{existing_slots + 1}"
+                cur.execute(
+                    """
+                    INSERT INTO completions (chore_id, user_id, target_date, slot, points_earned, was_stolen, completed_at)
+                    VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+                    """,
+                    (chore_id, user_id, target_date, slot_code, points),
+                )
+                user_info = {"name": user["name"], "avatar": user["avatar"], "points": points}
+
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "chore_name": chore_name, "completed_by": user_info})
+
+    # ------------------------------------------------------------------
     # Weekly Calendar Grid ("Week at a Glance")
     # ------------------------------------------------------------------
     @app.route("/api/weekly")
@@ -222,7 +317,7 @@ def create_app(db_path=None):
             d = monday + timedelta(days=offset)
             d_iso = d.isoformat()
             day_items = build_daily_board(
-                chores, all_users_by_id, comps_by_date.get(d_iso, []), d
+                chores, all_users_by_id, comps_by_date.get(d_iso, []), d, completions
             )
             days_payload.append(
                 {

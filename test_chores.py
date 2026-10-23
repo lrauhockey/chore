@@ -60,6 +60,17 @@ def test_recurrence_engine_schedules():
     assert is_chore_due_on_date(recycling_chore, date(2026, 10, 25)) is False  # Week 1 Sunday
     assert is_chore_due_on_date(recycling_chore, date(2026, 11, 1)) is True    # Week 2 Sunday
 
+    # 4. Every Other Day (Run / Empty the Dishwasher)
+    dishwasher_chore = {
+        "frequency_type": "every_other_day",
+        "days_of_week": "",
+        "time_of_day": "evening",
+        "anchor_date": "2026-10-23",
+    }
+    assert is_chore_due_on_date(dishwasher_chore, date(2026, 10, 23)) is True   # Day 0
+    assert is_chore_due_on_date(dishwasher_chore, date(2026, 10, 24)) is False  # Day 1
+    assert is_chore_due_on_date(dishwasher_chore, date(2026, 10, 25)) is True   # Day 2
+
 
 def test_api_flow_complete_and_leaderboard(client):
     # Fetch daily board (seeds 3 adults + 6 default chores)
@@ -92,3 +103,47 @@ def test_api_flow_complete_and_leaderboard(client):
     assert rep["champion"]["user"]["id"] == user_alex["id"]
     assert rep["champion"]["points"] == first_chore["points"]
     assert rep["last_place"] is not None
+
+
+def test_weekly_anytime_and_adhoc_tasks(client):
+    # 1. Verify Food Shopping (weekly_anytime) shows up on Monday, and once completed on Monday,
+    #    shows as completed on Wednesday of the same week!
+    mon_res = client.get("/api/daily?date=2026-10-19").get_json()
+    users = mon_res["users"]
+    groceries = next(c for c in mon_res["chores"] if "Food Shopping" in c["name"])
+    assert groceries["completed"] is False
+
+    # Complete Food Shopping on Monday
+    client.post(
+        "/api/complete",
+        json={
+            "chore_id": groceries["chore_id"],
+            "user_id": users[1]["id"],
+            "target_date": "2026-10-19",
+            "slot": groceries["slot"],
+        },
+    )
+
+    # Check Wednesday of the same week — Food Shopping should show as already completed this week!
+    wed_res = client.get("/api/daily?date=2026-10-21").get_json()
+    groceries_wed = next(c for c in wed_res["chores"] if "Food Shopping" in c["name"])
+    assert groceries_wed["completed"] is True
+    assert groceries_wed["completed_by"]["id"] == users[1]["id"]
+    assert groceries_wed["slot_label"] == "Done Mon"
+
+    # 2. Test adding an Ad-Hoc task from Today's Board (both custom one-off and extra run of existing chore)
+    adhoc_res = client.post(
+        "/api/adhoc",
+        json={
+            "target_date": "2026-10-21",
+            "name": "Wash the Car",
+            "icon": "🚗",
+            "points": 30,
+            "category": "house",
+            "user_id": None,  # Leave open on Today's Board
+        },
+    )
+    assert adhoc_res.status_code == 200
+    wed_after = client.get("/api/daily?date=2026-10-21").get_json()
+    assert any(c["name"] == "Wash the Car" and not c["completed"] for c in wed_after["chores"])
+
